@@ -8,16 +8,17 @@
 
 #include <iostream>
 #include <math.h>
-
+#include <stdio.h>
 void myPrintf( const char *szText )
 {
-    printf("Profiler:%s", szText);
+    printf("%s", szText);
 }
 
 
 #define USE_PROFILER 1
 #define LIB_PROFILER_IMPLEMENTATION
 #define LIB_PROFILER_PRINTF myPrintf
+#define LOG_ELAPSED_TIME_HISTORY 1
 #include "libProfiler.h"
 
 
@@ -39,8 +40,9 @@ int main(int argc, const char * argv[])
     PROFILER_START(Main);
 
     std::cout << "Hello, World!\n";
-    myFunction();
-    myFunction();    
+    for(int i=0;i<20;i++){
+    	myFunction();
+    }
 
     PROFILER_END();
 
