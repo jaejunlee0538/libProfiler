@@ -241,7 +241,6 @@
 #define _QUOTE(x) # x
 #define QUOTE(x) _QUOTE(x)
 
-
 inline void LOG(const char *format,...)
 {
     va_list ptr_arg;
@@ -251,7 +250,7 @@ inline void LOG(const char *format,...)
     vsprintf( tmps, format, ptr_arg );
 
     LIB_PROFILER_PRINTF( tmps );
-    
+
     va_end(ptr_arg);
 }
 
@@ -270,7 +269,6 @@ inline char* ZGetCurrentDirectory(int bufLength, char *pszDest)
 
 #elif IS_OS_LINUX
 #include <pthread.h>
-#include <unistd.h>
 typedef pthread_mutex_t ZCriticalSection_t;
 inline char* ZGetCurrentDirectory(int bufLength, char *pszDest)
 {
@@ -290,10 +288,10 @@ inline char* ZGetCurrentDirectory(int bufLength, char *pszDest)
 __inline ZCriticalSection_t* NewCriticalSection()
 {
 #if IS_OS_LINUX
-	ZCriticalSection_t *cs = new pthread_mutex_t;
-	//(*cs) = PTHREAD_MUTEX_INITIALIZER;
-	pthread_mutex_init (cs, NULL);
-	return cs;
+    ZCriticalSection_t *cs = new pthread_mutex_t;
+    //(*cs) = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_init (cs, NULL);
+    return cs;
 #elif IS_OS_MACOSX
 	MPCriticalRegionID* criticalRegion = new MPCriticalRegionID;
 	OSStatus err = MPCreateCriticalRegion (criticalRegion);
@@ -314,7 +312,7 @@ __inline ZCriticalSection_t* NewCriticalSection()
 __inline void DestroyCriticalSection(ZCriticalSection_t *cs)
 {
 #if IS_OS_LINUX
-	delete cs;
+    delete cs;
 #elif IS_OS_MACOSX
 	MPDeleteCriticalRegion(*cs);
 #elif IS_OS_WINDOWS
@@ -326,7 +324,7 @@ __inline void DestroyCriticalSection(ZCriticalSection_t *cs)
 __inline void LockCriticalSection(ZCriticalSection_t *cs)
 {
 #if IS_OS_LINUX
-	pthread_mutex_lock( cs );
+    pthread_mutex_lock( cs );
 #elif IS_OS_MACOSX
 	MPEnterCriticalRegion(*cs, kDurationForever);
 #elif IS_OS_WINDOWS
@@ -337,20 +335,20 @@ __inline void LockCriticalSection(ZCriticalSection_t *cs)
 __inline void UnLockCriticalSection(ZCriticalSection_t *cs)
 {
 #if IS_OS_LINUX
-	pthread_mutex_unlock( cs );
+    pthread_mutex_unlock( cs );
 #elif IS_OS_MACOSX
 	MPExitCriticalRegion(*cs);
 #elif IS_OS_WINDOWS
 	LeaveCriticalSection(cs);
-#endif 
+#endif
 }
 
 
-bool Zprofiler_enable();
-void Zprofiler_disable();
-void Zprofiler_start( const char *profile_name );
-void Zprofiler_end( );
-void LogProfiler();
+inline bool Zprofiler_enable();
+inline void Zprofiler_disable();
+inline void Zprofiler_start( const char *profile_name );
+inline void Zprofiler_end( );
+inline void LogProfiler();
 
 //defines
 
@@ -374,9 +372,9 @@ void LogProfiler();
 
 using namespace std;
 
-void TimerInit();
+inline void TimerInit();
 //#if defined(WIN32)
-double	startHighResolutionTimer( void );
+inline double	startHighResolutionTimer( void );
 /*
  #elif defined(_MAC_)
  void	startHighResolutionTimer(unsigned long time[2]);
@@ -447,15 +445,27 @@ typedef __uint64_t threadIDType;//
 typedef std::vector<singleProfilerData> tdCallStackType;
 typedef std::map<std::string, tdstGenProfilerData> mapProfilerByCallStackName;
 typedef std::map<threadIDType, tdCallStackType> mapCallStackByThreadID;
-//	Hold the sequence of profiler_starts
-mapProfilerByCallStackName mapProfilerGraph;
+class __SingleTon{
+public:
+    // Critical section
+    ZCriticalSection_t* gProfilerCriticalSection;
 
-// Hold profiler data vector in function of the thread
-mapCallStackByThreadID mapCallsByThread;
+    //	Hold the sequence of profiler_starts
+    mapProfilerByCallStackName mapProfilerGraph;
 
-// Critical section
-ZCriticalSection_t	*gProfilerCriticalSection;
+    // Hold profiler data vector in function of the thread
+    mapCallStackByThreadID mapCallsByThread;
 
+    static __SingleTon& getInstance(){
+        static __SingleTon __instance;
+        return __instance;
+    }
+
+private:
+    __SingleTon(){}
+    __SingleTon(__SingleTon const&);
+    void operator=(__SingleTon const&);
+};
 
 // Critical section functions
 /*
@@ -472,19 +482,16 @@ bool Zprofiler_enable()
 {
     // Initialize the timer
     TimerInit();
-    
+
     // Create the mutex
-    gProfilerCriticalSection = NewCriticalSection();
-    
+    __SingleTon::getInstance().gProfilerCriticalSection = NewCriticalSection();
+
     // Clear maps
     /*
-     mapCallsByThread.clear();
-     mapProfilerGraph.clear();
-     mapCallsByThread.clear();
+     __SingleTon::getInstance().mapCallsByThread.clear();
+     __SingleTon::getInstance().mapProfilerGraph.clear();
+     __SingleTon::getInstance().mapCallsByThread.clear();
      */
-    
-    
-    
     return true;
 }
 
@@ -495,18 +502,18 @@ void Zprofiler_disable()
 {
     // Dump to file
     //Zprofiler_dumpToFile( DUMP_FILENAME );
-    
+
     // Clear maps
-    mapCallsByThread.clear();
-    mapProfilerGraph.clear();
-    
+    __SingleTon::getInstance().mapCallsByThread.clear();
+    __SingleTon::getInstance().mapProfilerGraph.clear();
+
     // Delete the mutex
-    DestroyCriticalSection(gProfilerCriticalSection);
+    DestroyCriticalSection(__SingleTon::getInstance().gProfilerCriticalSection);
 }
 #if IS_OS_MACOSX
-threadIDType GetCurrentThreadId() { return 0; }
+inline threadIDType GetCurrentThreadId() { return 0; }
 #elif IS_OS_LINUX
-threadIDType GetCurrentThreadId() { return pthread_self(); }
+inline threadIDType GetCurrentThreadId() { return pthread_self(); }
 #endif
 
 //
@@ -514,10 +521,10 @@ threadIDType GetCurrentThreadId() { return pthread_self(); }
 //
 void Zprofiler_start( const char *profile_name )
 {
-    LockCriticalSection(gProfilerCriticalSection);
-    
+    LockCriticalSection(__SingleTon::getInstance().gProfilerCriticalSection);
+
     threadIDType ulThreadId = GetCurrentThreadId();
-    
+
     // Add the profile name in the callstack vector
     singleProfilerData profilerData;
     memset(&profilerData, 0, sizeof(singleProfilerData));
@@ -525,36 +532,36 @@ void Zprofiler_start( const char *profile_name )
 
     // Find or add callstack
     tdCallStackType TmpCallStack;
-    mapCallStackByThreadID::iterator IterCallsByThreadMap = mapCallsByThread.find(ulThreadId);
-    if( IterCallsByThreadMap == mapCallsByThread.end() )
+    mapCallStackByThreadID::iterator IterCallsByThreadMap = __SingleTon::getInstance().mapCallsByThread.find(ulThreadId);
+    if( IterCallsByThreadMap == __SingleTon::getInstance().mapCallsByThread.end() )
     {
         // Not found. So insert the new pair
-        mapCallsByThread.insert(std::make_pair(ulThreadId, TmpCallStack));
-        IterCallsByThreadMap = mapCallsByThread.find(ulThreadId);
+        __SingleTon::getInstance().mapCallsByThread.insert(std::make_pair(ulThreadId, TmpCallStack));
+        IterCallsByThreadMap = __SingleTon::getInstance().mapCallsByThread.find(ulThreadId);
     }
-    
+
     // It's the first element of the vector
     if ((*IterCallsByThreadMap).second.empty()){
         sprintf(profilerData.szBunchCodeName, "%s%lu%s%s", _NAME_SEPARATOR_, ulThreadId, _THREADID_NAME_SEPARATOR_, profile_name);
         (*IterCallsByThreadMap).second.push_back(profilerData);
     }
-    // It's not the first element of the vector
+        // It's not the first element of the vector
     else
     {
         // We need to construct the string with the previous value of the profile_start
         // This is for differentiating function calls invoked from different stack(?)
         char *previousString = (*IterCallsByThreadMap).second[(*IterCallsByThreadMap).second.size()-1].szBunchCodeName;
-        
+
         // Add the current profile start string
         strcpy(profilerData.szBunchCodeName, previousString);
         strcat(profilerData.szBunchCodeName, _NAME_SEPARATOR_);
         strcat(profilerData.szBunchCodeName, profile_name);
-        
+
         // Push it
         (*IterCallsByThreadMap).second.push_back(profilerData);
     }
-    
-    UnLockCriticalSection(gProfilerCriticalSection);
+
+    UnLockCriticalSection(__SingleTon::getInstance().gProfilerCriticalSection);
 }
 
 //
@@ -563,19 +570,19 @@ void Zprofiler_start( const char *profile_name )
 void Zprofiler_end( )
 {
     threadIDType ulThreadId = GetCurrentThreadId();
-    
+
     // Retrieve the right entry in function of the threadId
-    mapCallStackByThreadID::iterator IterCallsByThreadMap = mapCallsByThread.find(ulThreadId);
-    
+    mapCallStackByThreadID::iterator IterCallsByThreadMap = __SingleTon::getInstance().mapCallsByThread.find(ulThreadId);
+
     // Check if vector is empty
     if( (*IterCallsByThreadMap).second.empty() )
     {
         LOG( "There is an error in the call stack vector !!!\n\n");
         return;
     }
-    
-    LockCriticalSection(gProfilerCriticalSection);
-    
+
+    LockCriticalSection(__SingleTon::getInstance().gProfilerCriticalSection);
+
     // Retrieve the last element from the callstack vector
     singleProfilerData profilerData;
     profilerData	= (*IterCallsByThreadMap).second[(*IterCallsByThreadMap).second.size()-1];
@@ -583,8 +590,8 @@ void Zprofiler_end( )
 
     // Find if this entry exists in the map
     mapProfilerByCallStackName::iterator	IterMap;
-    IterMap	= mapProfilerGraph.find( profilerData.szBunchCodeName );
-    if( IterMap!=mapProfilerGraph.end() ){
+    IterMap	= __SingleTon::getInstance().mapProfilerGraph.find( profilerData.szBunchCodeName );
+    if( IterMap!=__SingleTon::getInstance().mapProfilerGraph.end() ){
         (*IterMap).second.elapsedTimes.push_back(elapsedTime);
     }
     else
@@ -595,20 +602,20 @@ void Zprofiler_end( )
         strcpy(GenProfilerData.szBunchCodeName, profilerData.szBunchCodeName);
 
         // Insert this part of the call stack into the Progiler Graph
-        mapProfilerGraph.insert( std::make_pair(GenProfilerData.szBunchCodeName, GenProfilerData) );
+        __SingleTon::getInstance().mapProfilerGraph.insert( std::make_pair(GenProfilerData.szBunchCodeName, GenProfilerData) );
     }
 
     // Now, pop back the singleProfilerData from the vector callstack
     (*IterCallsByThreadMap).second.pop_back();
-    
-    UnLockCriticalSection(gProfilerCriticalSection);
+
+    UnLockCriticalSection(__SingleTon::getInstance().gProfilerCriticalSection);
 }
 
 //
 // Dump all data in a file
 //
 
-bool MyDataSortPredicate(const tdstGenProfilerData& un, const tdstGenProfilerData& deux)
+inline bool MyDataSortPredicate(const tdstGenProfilerData& un, const tdstGenProfilerData& deux)
 {
     //Sort by name
     return un.szBunchCodeName < deux.szBunchCodeName;
@@ -620,7 +627,7 @@ void LogProfiler()
     char szThreadId[16];
     char textLine[1024];
     char *tmpString;
-    
+
     long i;
     //long nbTreadIds	= 0;
     long size		= 0;
@@ -629,53 +636,53 @@ void LogProfiler()
     std::map<std::string, int> ThreadIdsCount;
     std::map<std::string, int>::iterator IterThreadIdsCount;
     ThreadIdsCount.clear();
-    
+
     // Vector for callstack
     vector<tdstGenProfilerData> tmpCallStack;
     vector<tdstGenProfilerData>::iterator IterTmpCallStack;
     tmpCallStack.clear();
-    
+
     // Copy map data into a vector in the aim to sort it
     mapProfilerByCallStackName::iterator	IterMap;
-    for(IterMap=mapProfilerGraph.begin(); IterMap!=mapProfilerGraph.end(); ++IterMap){
+    for(IterMap=__SingleTon::getInstance().mapProfilerGraph.begin(); IterMap!=__SingleTon::getInstance().mapProfilerGraph.end(); ++IterMap){
 
         (*IterMap).second.updateFields();
         tmpCallStack.push_back( (*IterMap).second );
     }
-    
+
     // Sort the vector
     std::sort(tmpCallStack.begin(), tmpCallStack.end(), MyDataSortPredicate);//sort by name
-    
+
     // Create a map with thread Ids
     for(IterTmpCallStack=tmpCallStack.begin(); IterTmpCallStack!=tmpCallStack.end(); ++IterTmpCallStack){
         //// DEBUG
-        // fprintf(stderr, "%s\n", (*IterTmpCallStack).szBunchCodeName );
+//        fprintf(stderr, "%s\n", (*IterTmpCallStack).szBunchCodeName );
         //// DEBUG
-        
+
         tmpString	= strstr((*IterTmpCallStack).szBunchCodeName, _THREADID_NAME_SEPARATOR_);
         size		= (long)(tmpString-(*IterTmpCallStack).szBunchCodeName);
         strncpy(szThreadId, (*IterTmpCallStack).szBunchCodeName+1, size-1); szThreadId[size-1] = 0;
         ThreadIdsCount[szThreadId]++;
     }
-    
+
     // Retrieve the number of thread ids
-    //unsigned long nbThreadIds	= mapProfilerGraph.size();
-    
+    //unsigned long nbThreadIds	= __SingleTon::getInstance().mapProfilerGraph.size();
+
     IterThreadIdsCount = ThreadIdsCount.begin();
     for(unsigned long nbThread=0;nbThread<ThreadIdsCount.size();nbThread++)
     {
         sprintf(szThreadId, "%s", IterThreadIdsCount->first.c_str() );
-        
+
         LOG("CALLSTACK of Thread %s\n", szThreadId);
         LOG("_______________________________________________________________________________________\n");
         LOG("| Total time   | Avg Time     |  Min time    |  Max time    | Calls  | Section\n");
         LOG("_______________________________________________________________________________________\n");
-        
+
         long nbSeparator = 0;
         for(IterTmpCallStack=tmpCallStack.begin(); IterTmpCallStack!=tmpCallStack.end(); ++IterTmpCallStack)
         {
             tmpString	= (*IterTmpCallStack).szBunchCodeName+1;
-            
+
             if( strstr(tmpString, szThreadId) )
             {
                 // Count the number of separator in the string
@@ -687,7 +694,7 @@ void LogProfiler()
                         nbSeparator++;
                     }
                 }
-                
+
                 // Get times and fill in the dislpay string
                 sprintf(textLine, "| %12.4f | %12.4f | %12.4f | %12.4f |%6d  | ",
                         (*IterTmpCallStack).totalTime,
@@ -695,20 +702,20 @@ void LogProfiler()
                         (*IterTmpCallStack).minTime,
                         (*IterTmpCallStack).maxTime,
                         (int)(*IterTmpCallStack).elapsedTimes.size());
-                
+
                 // Get the last start_profile_name in the string
                 tmpString = strrchr((*IterTmpCallStack).szBunchCodeName, '|')+1;
-                
+
                 // Copy white space in the string to format the display
                 // in function of the hierarchy
                 for(i=0;i<nbSeparator;i++) strcat(textLine, "  ");
-                
+
                 // Remove the thred if from the string
                 if( strstr(tmpString, _THREADID_NAME_SEPARATOR_) )
                 {
                     tmpString += strlen(szThreadId)+1;
                 }
-                
+
                 // Display the name of the bunch code profiled
                 LOG("%s%s\n", textLine, tmpString );
             }
@@ -717,7 +724,7 @@ void LogProfiler()
         ++IterThreadIdsCount;
     }
     LOG( "\n\n");
-#ifdef LOG_ELAPSED_TIME_HISTORY
+#if LOG_ELAPSED_TIME_HISTORY
     IterThreadIdsCount = ThreadIdsCount.begin();
     for(unsigned long nbThread=0;nbThread<ThreadIdsCount.size();nbThread++)
     {
